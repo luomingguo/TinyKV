@@ -2,54 +2,63 @@
 
 set -eu
 
+# 获取脚本自身的绝对路径
+SCRIPT_PATH="$(realpath "$0")"
+
+# 脚本所在目录
+SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
+# 脚本的上一层目录作为根目录
+ROOT_DIR="$(dirname "$SCRIPT_DIR")"
+BUILD_DIR="${ROOT_DIR}/build"
+
 REFERENCE_FILES=(
     # misc
-    github.com/luomingguo/TinyKV/internal/labgob/labgob.go
-    github.com/luomingguo/TinyKV/internal/labgob/test_test.go
-    github.com/luomingguo/TinyKV/internal/labrpc/labrpc.go
-    github.com/luomingguo/TinyKV/internal/labrpc/test_test.go
-    github.com/luomingguo/TinyKV/internal/models1/kv.go
+    ${ROOT_DIR}/internal/labgob/labgob.go
+    ${ROOT_DIR}/internal/labgob/test_test.go
+    ${ROOT_DIR}/internal/labrpc/labrpc.go
+    ${ROOT_DIR}/internal/labrpc/test_test.go
+    ${ROOT_DIR}/internal/models1/kv.go
 
     # lab 1
-    github.com/luomingguo/TinyKV/cmd/main/mrapps//crash.go
-    github.com/luomingguo/TinyKV/cmd/main/mrapps//indexer.go
-    github.com/luomingguo/TinyKV/cmd/main/mrapps//mtiming.go
-    github.com/luomingguo/TinyKV/cmd/main/mrapps//nocrash.go
-    github.com/luomingguo/TinyKV/cmd/main/mrapps//rtiming.go
-    github.com/luomingguo/TinyKV/cmd/main/mrapps//wc.go
-    github.com/luomingguo/TinyKV/internal/main/mrsequential.go
-    github.com/luomingguo/TinyKV/internal/main/mrcoordinator.go
-    github.com/luomingguo/TinyKV/internal/main/mrworker.go
+    ${ROOT_DIR}/cmd/main/mrapps/crash.go
+    ${ROOT_DIR}/cmd/main/mrapps/indexer.go
+    ${ROOT_DIR}/cmd/main/mrapps/mtiming.go
+    ${ROOT_DIR}/cmd/main/mrapps/nocrash.go
+    ${ROOT_DIR}/cmd/main/mrapps/rtiming.go
+    ${ROOT_DIR}/cmd/main/mrapps/wc.go
+    ${ROOT_DIR}/internal/main/mrsequential.go
+    ${ROOT_DIR}/internal/main/mrcoordinator.go
+    ${ROOT_DIR}/internal/main/mrworker.go
 
     # lab 2
-    github.com/luomingguo/TinyKV/internal/kvsrv1/lock/lock_test.go
-    github.com/luomingguo/TinyKV/internal/kvsrv1/kvsrv_test.go
-    github.com/luomingguo/TinyKV/internal/kvsrv1/test.go
-    github.com/luomingguo/TinyKV/internal/kvtest1/kvtest.go
-    github.com/luomingguo/TinyKV/internal/kvtest1/porcupine.go
+    ${ROOT_DIR}/internal/kvsrv1/lock/lock_test.go
+    ${ROOT_DIR}/internal/kvsrv1/kvsrv_test.go
+    ${ROOT_DIR}/internal/kvsrv1/test.go
+    ${ROOT_DIR}/internal/kvtest1/kvtest.go
+    ${ROOT_DIR}/internal/kvtest1/porcupine.go
 
     # lab 3
-    github.com/luomingguo/TinyKV/internal/raft1/raft_test.go
-    github.com/luomingguo/TinyKV/internal/raft1/server.go
-    github.com/luomingguo/TinyKV/internal/raft1/test.go
-    github.com/luomingguo/TinyKV/internal/tester1/clnts.go
-    github.com/luomingguo/TinyKV/internal/tester1/config.go
-    github.com/luomingguo/TinyKV/internal/tester1/group.go
-    github.com/luomingguo/TinyKV/internal/tester1/persister.go
-    github.com/luomingguo/TinyKV/internal/tester1/srv.go
-    github.com/luomingguo/TinyKV/internal/tester1/annotation.go
+    ${ROOT_DIR}/internal/raft1/raft_test.go
+    ${ROOT_DIR}/internal/raft1/server.go
+    ${ROOT_DIR}/internal/raft1/test.go
+    ${ROOT_DIR}/internal/tester1/clnts.go
+    ${ROOT_DIR}/internal/tester1/config.go
+    ${ROOT_DIR}/internal/tester1/group.go
+    ${ROOT_DIR}/internal/tester1/persister.go
+    ${ROOT_DIR}/internal/tester1/srv.go
+    ${ROOT_DIR}/internal/tester1/annotation.go
 
     # lab 4
-    github.com/luomingguo/TinyKV/internal/kvraft1/rsm/rsm_test.go
-    github.com/luomingguo/TinyKV/internal/kvraft1/rsm/server.go
-    github.com/luomingguo/TinyKV/internal/kvraft1/rsm/test.go
-    github.com/luomingguo/TinyKV/internal/kvraft1/kvraft_test.go
-    github.com/luomingguo/TinyKV/internal/kvraft1/test.go
+    ${ROOT_DIR}/internal/kvraft1/rsm/rsm_test.go
+    ${ROOT_DIR}/internal/kvraft1/rsm/server.go
+    ${ROOT_DIR}/internal/kvraft1/rsm/test.go
+    ${ROOT_DIR}/internal/kvraft1/kvraft_test.go
+    ${ROOT_DIR}/internal/kvraft1/test.go
 
     # lab 5
-    github.com/luomingguo/TinyKV/internal/shardkv1/test.go
-    github.com/luomingguo/TinyKV/internal/shardkv1/shardkv_test.go
-    github.com/luomingguo/TinyKV/internal/shardkv1/shardcfg/shardcfg_test.go
+    ${ROOT_DIR}/internal/shardkv1/test.go
+    ${ROOT_DIR}/internal/shardkv1/shardkv_test.go
+    ${ROOT_DIR}/internal/shardkv1/shardcfg/shardcfg_test.go
 )
 
 main() {
@@ -100,22 +109,22 @@ check_lab1() {
 }
 
 check_lab2() {
-    check_cmd cd github.com/luomingguo/TinyKV/internal/kvsrv1
+    check_cmd cd ${ROOT_DIR}/internal/kvsrv1
     check_cmd go test -c
 }
 
 check_lab3() {
-    check_cmd cd github.com/luomingguo/TinyKV/internal/raft1
+    check_cmd cd ${ROOT_DIR}/internal/raft1
     check_cmd go test -c
 }
 
 check_lab4() {
-    check_cmd cd github.com/luomingguo/TinyKV/internal/kvraft1
+    check_cmd cd ${ROOT_DIR}/internal/kvraft1
     check_cmd go test -c
 }
 
 check_lab5() {
-    check_cmd cd github.com/luomingguo/TinyKV/internal/shardkv1
+    check_cmd cd ${ROOT_DIR}/internal/shardkv1
     check_cmd go test -c
     # also check other labs/parts
     cd "$tmpdir"
