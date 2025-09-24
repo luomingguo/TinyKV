@@ -167,6 +167,8 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 			reply.VoteGranted = false
 			rf.votedFor = -1
 		default:
+			// 不应该出现，记录日志
+			rf.role = Follower // 容错: 退回 Follower
 			DPrintf("args.Term is Invalid param, %d", args.Term)
 		}
 	} else if args.Term < rf.currentTerm {
@@ -276,52 +278,83 @@ func (rf *Raft) doElection() {
 
 	rf.currentTerm++
 	rf.role = Candidate
+	rf.lastHeartBeat = time.Now() // !!!! 重置选举计时器，不然会一直选举
 	rf.votedFor = rf.me
 	args := &RequestVoteArgs{
 		Term:        rf.currentTerm,
 		CandidateId: rf.me,
 	}
+	peerNum := len(rf.peers)
+	currentTerm := rf.currentTerm
 	rf.mu.Unlock() // rpc请求不要占用锁
 
-	voteGrantedCnt := 1 // 先给自己投一篇
+	majority := peerNum/2 + 1
+	voteChan := make(chan bool, peerNum)
+	termChan := make(chan int, peerNum)
 
-	var wg sync.WaitGroup
+	voteGrantedCnt := 1 // 先给自己投一篇
+	numRsp := 1         // 请求处理，加上自身
 	// TODO 这里不支持成员管理了
-	for idx, _ := range rf.peers {
+	for idx := 0; idx < peerNum; idx++ {
 		if idx == rf.me {
 			continue
 		}
-		wg.Add(1)
 
 		go func(server int) {
-			defer wg.Done()
 			reply := &RequestVoteReply{}
 			ok := rf.sendRequestVote(idx, args, reply)
+			if !ok {
+				voteChan <- false
+				return
+			}
 			rf.mu.Lock()
 			defer rf.mu.Unlock()
-			if !ok {
-				return
-			}
 			if reply.Term < rf.currentTerm {
+				// 忽略过期的响应
+				voteChan <- false
 				return
 			} else if reply.Term > rf.currentTerm {
-				rf.currentTerm = reply.Term
-				rf.role = Follower
-				rf.votedFor = -1
+				termChan <- reply.Term
 				return
 			}
-			if rf.role == Candidate && reply.VoteGranted {
-				voteGrantedCnt++
-				// 中断如果放在循环后面，需要等待所有节点回复或者失败，
-				if voteGrantedCnt > len(rf.peers)/2 {
-					rf.role = Leader
-					rf.lastHeartBeat = time.Now() // !!!! 重置选举计时器，不然会一直选举
-					// TODO发送心跳
-				}
+			if reply.VoteGranted {
+				voteChan <- true
+			} else {
+				voteChan <- false
 			}
 		}(idx)
 	}
-	wg.Wait()
+
+	for voteGrantedCnt < majority && numRsp < peerNum {
+		select {
+		case vote := <-voteChan:
+			numRsp++
+			if !vote {
+				continue
+			}
+			voteGrantedCnt++
+			// 中断如果放在循环后面，需要等待所有节点回复或者失败，
+			if voteGrantedCnt > len(rf.peers)/2 {
+				rf.mu.Lock()
+				// 再次检查状态，确保没有被其他goroutine改变
+				if rf.role == Candidate && rf.currentTerm == currentTerm {
+					rf.role = Leader
+					rf.lastHeartBeat = time.Now()
+					// TODO发送心跳
+				}
+				rf.mu.Unlock()
+			}
+		case higherTerm := <-termChan:
+			numRsp++
+			rf.mu.Lock()
+			if higherTerm > rf.currentTerm {
+				rf.currentTerm = higherTerm
+				rf.role = Follower
+				rf.votedFor = -1
+			}
+			rf.mu.Unlock()
+		}
+	}
 }
 
 // the service or tester wants to create a Raft server. the ports
@@ -341,7 +374,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.me = me
 
 	// Your initialization code here (3A, 3B, 3C).
-	rf.currentTerm = -1
+	rf.currentTerm = 1
 	rf.votedFor = -1
 	rf.role = Follower
 	rf.lastHeartBeat = time.Now()
