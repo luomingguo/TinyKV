@@ -6,6 +6,13 @@ package raft
 //
 // Make() creates a new raft peer that implements the raft interface.
 
+/*
+心跳RPC消息不超过10条
+测试程序要求5秒内选主完， 按论文，只有当领导者发送心跳消息的频率远高于每150毫秒一次（例如，每10毫秒一次）时，
+这个范围才有意义。由于测试程序限制了心跳消息的频率，您必须使用大于150到300毫秒的选举超时时间，但也不能太大，
+否则可能无法在5秒内选举出新的领导者
+*/
+
 import (
 	//	"bytes"
 	"math/rand"
@@ -20,6 +27,32 @@ import (
 	tester "github.com/luomingguo/TinyKV/internal/tester1"
 )
 
+type role int
+
+const (
+	Follower role = iota
+	Leader
+	Candidate
+)
+
+func (r role) String() string {
+	switch r {
+	case Follower:
+		return "Follower"
+	case Leader:
+		return "Leader"
+	case Candidate:
+		return "Candidate"
+	default:
+		return "Unknown"
+	}
+}
+
+const (
+	MinElectionTimeout = 300
+	MaxElectionTimeout = 500
+)
+
 // A Go object implementing a single Raft peer.
 type Raft struct {
 	mu        sync.Mutex          // Lock to protect shared access to this peer's state
@@ -31,17 +64,20 @@ type Raft struct {
 	// Your data here (3A, 3B, 3C).
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
-
+	currentTerm   int
+	votedFor      int // 当前任期把票给谁了
+	role          role
+	lastHeartBeat time.Time
 }
 
 // return currentTerm and whether this server
 // believes it is the leader.
 func (rf *Raft) GetState() (int, bool) {
 
-	var term int
-	var isleader bool
 	// Your code here (3A).
-	return term, isleader
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	return rf.currentTerm, rf.role == Leader
 }
 
 // save Raft's persistent state to stable storage,
@@ -102,17 +138,47 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 // field names must start with capital letters!
 type RequestVoteArgs struct {
 	// Your data here (3A, 3B).
+	Term        int
+	CandidateId int
 }
 
 // example RequestVote RPC reply structure.
 // field names must start with capital letters!
 type RequestVoteReply struct {
 	// Your data here (3A).
+	Term        int
+	VoteGranted bool // 是否接受选举
 }
 
 // example RequestVote RPC handler.
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (3A, 3B).
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	// 比自己小的则丢弃
+	if args.Term == rf.currentTerm {
+		switch rf.role {
+		case Candidate:
+			reply.VoteGranted = false
+		case Follower:
+			rf.votedFor = args.CandidateId
+			reply.VoteGranted = true
+		case Leader:
+			reply.VoteGranted = false
+			rf.votedFor = -1
+		default:
+			DPrintf("args.Term is Invalid param, %d", args.Term)
+		}
+	} else if args.Term < rf.currentTerm {
+		reply.VoteGranted = false
+	} else {
+		// 如果收到更大的 term，更新自己为 Follower
+		rf.currentTerm = args.Term
+		rf.role = Follower
+		reply.VoteGranted = true
+		rf.votedFor = args.CandidateId
+	}
+	reply.Term = rf.currentTerm
 }
 
 // example code to send a RequestVote RPC to a server.
@@ -190,15 +256,72 @@ func (rf *Raft) killed() bool {
 
 func (rf *Raft) ticker() {
 	for rf.killed() == false {
-
 		// Your code here (3A)
 		// Check if a leader election should be started.
-
+		timeout := time.Duration(MinElectionTimeout+rand.Intn(MaxElectionTimeout-MinElectionTimeout)) * time.Millisecond
+		rf.mu.Lock()
+		if time.Since(rf.lastHeartBeat) >= timeout && rf.role != Leader {
+			rf.doElection()
+		} else {
+			rf.mu.Unlock()
+		}
 		// pause for a random amount of time between 50 and 350
 		// milliseconds.
 		ms := 50 + (rand.Int63() % 300)
 		time.Sleep(time.Duration(ms) * time.Millisecond)
 	}
+}
+
+func (rf *Raft) doElection() {
+
+	rf.currentTerm++
+	rf.role = Candidate
+	rf.votedFor = rf.me
+	args := &RequestVoteArgs{
+		Term:        rf.currentTerm,
+		CandidateId: rf.me,
+	}
+	rf.mu.Unlock() // rpc请求不要占用锁
+
+	voteGrantedCnt := 1 // 先给自己投一篇
+
+	var wg sync.WaitGroup
+	// TODO 这里不支持成员管理了
+	for idx, _ := range rf.peers {
+		if idx == rf.me {
+			continue
+		}
+		wg.Add(1)
+
+		go func(server int) {
+			defer wg.Done()
+			reply := &RequestVoteReply{}
+			ok := rf.sendRequestVote(idx, args, reply)
+			rf.mu.Lock()
+			defer rf.mu.Unlock()
+			if !ok {
+				return
+			}
+			if reply.Term < rf.currentTerm {
+				return
+			} else if reply.Term > rf.currentTerm {
+				rf.currentTerm = reply.Term
+				rf.role = Follower
+				rf.votedFor = -1
+				return
+			}
+			if rf.role == Candidate && reply.VoteGranted {
+				voteGrantedCnt++
+				// 中断如果放在循环后面，需要等待所有节点回复或者失败，
+				if voteGrantedCnt > len(rf.peers)/2 {
+					rf.role = Leader
+					rf.lastHeartBeat = time.Now() // !!!! 重置选举计时器，不然会一直选举
+					// TODO发送心跳
+				}
+			}
+		}(idx)
+	}
+	wg.Wait()
 }
 
 // the service or tester wants to create a Raft server. the ports
@@ -218,6 +341,10 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.me = me
 
 	// Your initialization code here (3A, 3B, 3C).
+	rf.currentTerm = -1
+	rf.votedFor = -1
+	rf.role = Follower
+	rf.lastHeartBeat = time.Now()
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
